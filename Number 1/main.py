@@ -1,3 +1,11 @@
+import os
+
+try:
+    import pygame
+except ModuleNotFoundError:
+    os.system("pip install --upgrade pip")
+    os.system("pip install pygame")
+
 import pygame
 
 pygame.init()
@@ -5,6 +13,13 @@ pygame.init()
 screen = pygame.display.set_mode((720, 480))
 
 clock = pygame.time.Clock()
+
+# Stage boundaries for scrolling
+start_X = 0  # Leftmost X for stage
+end_X = -1275  # Rightmost X for stage (adjust based on your stage size)
+stage_offset = 0  # Track how much the stage has been shifted
+player_locked = False  # Track if player is locked at center
+initial_lock_pos = 0  # Track initial stage X when player gets locked
 
 
 class GameSprite(pygame.sprite.Sprite):
@@ -28,40 +43,70 @@ class PlayerSprite(GameSprite):
         self.fall_counter = 0
 
     def move(self):
-        keys = pygame.key.get_pressed()
-        if keys[pygame.K_SPACE]:
-            self.rect.y -= self.fall_counter
-            self.fall_counter += 0.75
-            if pygame.sprite.collide_rect(self, floor):
-                self.fall_counter = 4
+        global player_locked, initial_lock_pos
 
-        if self.fall_counter >= 8:
-            self.fall_counter = 8
+        keys = pygame.key.get_pressed()
+
+        if self.fall_counter >= 7:
+            self.fall_counter = 7
         elif self.fall_counter <= -15:
             self.fall_counter = -15
 
-        if pygame.sprite.collide_rect(self, roof):
-            self.rect.y = 25
-            self.fall_counter = 0
+        if keys[pygame.K_w]:
+            self.rect.y -= self.fall_counter
+            if pygame.sprite.collide_rect(self, roof):
+                self.fall_counter = 0
+                self.rect.top = roof.rect.bottom
+            else:
+                self.fall_counter += 0.75
+            if pygame.sprite.collide_rect(self, floor):
+                self.fall_counter = 1
+                self.rect.bottom = floor.rect.top
 
-        if not keys[pygame.K_SPACE]:
-            self.fall_counter -= 0.75
+        if not keys[pygame.K_w]:
             self.rect.y -= self.fall_counter
             if pygame.sprite.collide_rect(self, floor):
                 self.fall_counter = 0
-                self.rect.y = 405
+                self.rect.bottom = floor.rect.top
+            else:
+                self.fall_counter -= 0.75
             if pygame.sprite.collide_rect(self, roof):
-                self.rect.y = 26
+                self.fall_counter = -1
+                self.rect.top = roof.rect.bottom
 
+        # Horizontal movement
         if keys[pygame.K_a]:
-            self.rect.x -= self.speed
+            if not player_locked and self.rect.centerx <= 360 and stage_offset <= end_X:
+                player_locked = True
+            if player_locked:
+                # Unlock if the player moves back to or past the initial lock position
+                if stage_offset >= initial_lock_pos:
+                    player_locked = False
+                else:
+                    scroll_stage(self.speed)
+            else:
+                self.rect.x -= self.speed
+
             if pygame.sprite.collide_rect(self, wall_left):
-                self.rect.x += self.speed
+                self.rect.left = wall_left.rect.right
 
         if keys[pygame.K_d]:
-            self.rect.x += self.speed
-            if pygame.sprite.collide_rect(self, wall_right):
-                self.rect.x -= self.speed
+            if self.rect.centerx >= 360 and not player_locked:
+                if stage_offset == 0:
+                    # Lock the player and start scrolling the stage
+                    player_locked = True
+                    initial_lock_pos = stage_offset
+
+            if self.rect.centerx >= 360 and stage_offset <= end_X and player_locked:
+                player_locked = False
+
+            if player_locked:
+                scroll_stage(-self.speed)
+            else:
+                self.rect.x += self.speed
+
+            if pygame.sprite.collide_rect(self, wall_left):
+                self.rect.right = wall_left.rect.left
 
         self.update()
 
@@ -69,14 +114,29 @@ class PlayerSprite(GameSprite):
         screen.blit(self.image, self.rect)
 
 
+def scroll_stage(offset_x):
+    global stage_offset
+    new_offset = stage_offset + offset_x
+
+    # Check if the new offset is within bounds
+    if start_X >= new_offset >= end_X:
+        stage_offset = new_offset
+        for sprite in stage_list:
+            sprite.rect.x += offset_x
+        background.rect.x += offset_x * 0.7
+
+
+# Create stage elements
+background = GameSprite("bg.jpg", (2560, 1440), (0, 0))
 floor = GameSprite("placeholder.png", (2000, 25), (0, 455))
 roof = GameSprite("placeholder.png", (2000, 25), (0, 0))
 wall_left = GameSprite("placeholder.png", (25, 480), (0, 0))
 wall_right = GameSprite("placeholder.png", (25, 480), (1975, 0))
+block = GameSprite("placeholder.png", (50, 50), (785, 220))
 
 player = PlayerSprite("placeholder_player.png", (50, 50), (50, 0))
 
-stage_list = [floor, roof, wall_left, wall_right]
+stage_list = [floor, roof, wall_left, wall_right, block]
 
 running = True
 
@@ -87,10 +147,13 @@ while running:
 
     screen.fill((10, 10, 255))
 
+    background.update()
+
     player.move()
 
     for sprite in stage_list:
         sprite.update()
+    print(stage_offset)
 
     pygame.display.update()
 
